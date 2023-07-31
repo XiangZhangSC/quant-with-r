@@ -53,13 +53,13 @@ coke_price_change %>%
 This is how we can create a **stationary** time series for a artificial stock, called **spread**. 
 The price of this artificial stock can be represented as 
 
-$$\text{spread price(t)} = x A(t) + y B(t)$$
+$$\text{spread price(t)} = \frac{x A(t) + y B(t)}{x + y}$$
 $A(t)$ ad $B(t)$ represent the stock price for stock A and B at the time $t$. 
 
 ## Why one needs to purchase stock A and sell stock B in pair trading?
 
 Since the time series $\text{spread price(t)}$ is stationary, in other words the spread price does not change over time, this indicates $\text{spread price(t + 1)} \approx \text{spread price(t)}$. 
-Meanwhile $\text{spread price(t + 1)} = x A(t + 1) + y B(t + 1)$. 
+Meanwhile $\text{spread price(t + 1)} = \frac{x A(t + 1) + y B(t + 1)}{x + y}$. 
 This means $x A(t + 1) + y B(t + 1) \approx x A(t) + y B(t)$. 
 If we rearrange the equation we have 
 $$
