@@ -48,3 +48,25 @@ coke_price_change %>%
        title = "Pepsi versus Coke price changes")
 ```
 
+## Why pair trading?
+
+This is how we can create a **stationary** time series for a artificial stock, called **spread**. 
+The price of this artificial stock can be represented as 
+
+$$\text{spread price(t)} = x A(t) + y B(t)$$
+$A(t)$ ad $B(t)$ represent the stock price for stock A and B at the time $t$. 
+
+## Why one needs to purchase stock A and sell stock B in pair trading?
+
+Since the time series $\text{spread price(t)}$ is stationary, in other words the spread price does not change over time, this indicates $\text{spread price(t + 1)} \approx \text{spread price(t)}$. 
+Meanwhile $\text{spread price(t + 1)} = x A(t + 1) + y B(t + 1)$. 
+This means $x A(t + 1) + y B(t + 1) \approx x A(t) + y B(t)$. 
+If we rearrange the equation we have 
+$$
+\begin{align}
+x A(t + 1) - x A(t) &\approx  y B(t) - y B(t + 1) \\
+x[A(t + 1) - A(t)] &\approx -y[B(t + 1) - B(t)]
+\end{align}
+$$
+There is a negative sign in front of $y$, meaning selling $y$ shares of stock B. 
+In contrast, stock A needs to be purchased at $x$ shares. 
