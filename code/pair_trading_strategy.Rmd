@@ -36,15 +36,113 @@ calculate_price_change <- function(stock_price_df) {
 coke_price_change <- calculate_price_change(coke) 
 pepsi_price_change <- calculate_price_change(pepsi)
 
+# make a data frame with daily price change for Coke and Pepsi
+price_change_df <- coke_price_change %>% 
+  dplyr::bind_rows(pepsi_price_change) %>% 
+  tidyr::pivot_wider(id_cols = date, names_from = symbol, values_from = diff.xts)
+
 # make a scatter plot of Coke versus Pepsi price changes over a year
 # as shown in figure 6.1
-coke_price_change %>% 
-  dplyr::bind_rows(pepsi_price_change) %>% 
-  tidyr::pivot_wider(id_cols = date, names_from = symbol, values_from = diff.xts) %>% 
-  ggplot(aes(COKE, PEP)) + 
+ggplot(price_change_df, aes(COKE, PEP)) + 
   geom_point(shape = 1, size = 3) + 
   theme_bw() + 
   labs(x = "Coke price changes", y = "Pepsi price changes", 
        title = "Pepsi versus Coke price changes")
 ```
 
+## Why pair trading?
+
+This is how we can create a **stationary** time series for a artificial stock, called **spread**. 
+The price of this artificial stock can be represented as 
+
+$$\text{spread price(t)} = \frac{x A(t) + y B(t)}{x + y}$$
+$A(t)$ ad $B(t)$ represent the stock price for stock A and B at the time $t$. 
+
+## Why one needs to purchase stock A and sell stock B in pair trading?
+
+Since the time series $\text{spread price(t)}$ is stationary, in other words the spread price does not change over time, this indicates $\text{spread price(t + 1)} \approx \text{spread price(t)}$. 
+Meanwhile $\text{spread price(t + 1)} = \frac{x A(t + 1) + y B(t + 1)}{x + y}$. 
+This means $x A(t + 1) + y B(t + 1) \approx x A(t) + y B(t)$. 
+If we rearrange the equation we have 
+$$
+\begin{align}
+x A(t + 1) - x A(t) &\approx  y B(t) - y B(t + 1) \\
+x[A(t + 1) - A(t)] &\approx -y[B(t + 1) - B(t)]
+\end{align}
+$$
+There is a negative sign in front of $y$, meaning selling $y$ shares of stock B. 
+In contrast, stock A needs to be purchased at $x$ shares. 
+
+## How many shares stock A need to be purchased and how many shares stock B need to be sold?
+
+Based on the equation 
+$$x[A(t + 1) - A(t)] \approx -y[B(t + 1) - B(t)]$$
+we can rewrite the $\approx$ from the perspective of linear regression. 
+$$
+\begin{align}
+x \times \text{price change A} &\approx -y \times \text{price change B} \\
+\text{price change A} &\approx \frac{-y}{x} \times \text{price change B} \\
+\text{price change A} &= \frac{-y}{x} \times \text{price change B} + \epsilon
+\end{align}
+$$
+$\epsilon$ is the random error which is normally distributed.
+The $\frac{-y}{x}$ is the regression coefficient $\beta$ and estimated based on the price change data of stock A and stock B. 
+This provides another reason why we need to work with the price change of Coke and Pepsi. 
+
+Later, when it is decided to buy x shares stock A, then $y = \beta \times x$ shares stock B needs to be sold. 
+
+```{r estimation-spread-beta}
+calculate_spread_beta <- function(price_change_a, price_change_b) {
+  my_fit <- lm(price_change_a ~ price_change_b)
+  spread_beta <- my_fit$coefficients["price_change_b"]
+  return(spread_beta)
+}
+
+calculate_spread_beta(price_change_df$COKE, price_change_df$PEP)
+```
+
+```{r in-sample-spread}
+# define the function to calculate the spread price per share
+calculate_spread <- function(p1, p2, b) {
+  # p1 = stock A price per share at time t
+  # p2 = stock B price per share at time t
+  # b = spread beta
+  
+  s1 <- 1 # shares of stock A to buy
+  s2 <- s1 * b # shares of stock B to sell
+  s_tot <- s1 + s2 # total shares of this artificial stock called spread
+  spread_price <- (s1 * p1 + s2 * p2) / s_tot
+  return(spread_price)
+}
+
+# to match the figure 7.5 in the book "How to Build Your Own Algorithmic Trading Business"
+# the start and end date needs to be changed
+# in addition, in the same book the symbol for Coke is KO
+coke <- tq_get("KO", get = "stock.prices", 
+               from = "1977-01-01", to = "2000-12-31")
+pepsi <- tq_get("PEP", get = "stock.prices", 
+                from = "1977-01-01", to = "2000-12-31")
+
+coke_price_change <- calculate_price_change(coke) 
+pepsi_price_change <- calculate_price_change(pepsi)
+
+# make a data frame with daily price change for Coke and Pepsi
+price_change_df <- coke_price_change %>% 
+  dplyr::bind_rows(pepsi_price_change) %>% 
+  tidyr::pivot_wider(id_cols = date, names_from = symbol, values_from = diff.xts)
+
+# based on the price change data, calculate the spread beta
+spread_beta <- calculate_spread_beta(price_change_df$KO, price_change_df$PEP)
+
+# construct a spread for Coke and Pepsi pair trading
+# that is similar to the figure 7.5 in the book "How to Build Your Own Algorithmic Trading Business"
+coke_pepsi_spread <- calculate_spread(p1 = coke$adjusted, p2 = pepsi$adjusted, b = spread_beta)
+
+tibble::tibble(date = coke$date, spread = coke_pepsi_spread) %>% 
+  ggplot(aes(date, spread)) + 
+  geom_line() + 
+  theme_bw() + 
+  labs(x = NULL, y = "Spread (in $)")
+```
+
+This means if 1 share Coke is purchased, `r spread_beta` share Pepsi needs to be sold. 
