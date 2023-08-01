@@ -116,7 +116,7 @@ This explains why in the pair trading strategy when one purchases stock A and he
 
 ```{r estimation-spread-beta}
 calculate_spread_beta <- function(price_change_a, price_change_b) {
-  my_fit <- lm(price_change_a ~ price_change_b)
+  my_fit <- lm(price_change_a ~ 0 + price_change_b)
   spread_beta <- my_fit$coefficients["price_change_b"]
   return(spread_beta)
 }
