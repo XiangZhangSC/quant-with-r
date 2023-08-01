@@ -87,7 +87,7 @@ $\epsilon$ is the random error which is normally distributed.
 The $-\frac{w_B}{w_A}$ is the regression coefficient $\beta$. 
 $\frac{w_B}{w_A}$ is also called **hedge ratio**. 
 
-## How does pair traiding work?
+## How does pair trading work?
 
 1. estimate the spread beta $\beta$ based on the price change data. 
 2. calculate the proportion of stock A based on the $\beta$.  
@@ -116,7 +116,7 @@ This explains why in the pair trading strategy when one purchases stock A and he
 
 ```{r estimation-spread-beta}
 calculate_spread_beta <- function(price_change_a, price_change_b) {
-  my_fit <- lm(price_change_a ~ price_change_b)
+  my_fit <- lm(price_change_a ~ 0 + price_change_b)
   spread_beta <- my_fit$coefficients["price_change_b"]
   return(spread_beta)
 }
