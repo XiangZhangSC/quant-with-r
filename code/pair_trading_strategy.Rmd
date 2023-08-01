@@ -1,0 +1,170 @@
+---
+title: "Pair trading strategy"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyquant)
+library(magrittr)
+library(ggplot2)
+```
+
+```{r coke-pepsi}
+# download daily prices for Coke and Pepsi stock from Yahoo Finance
+coke <- tq_get("COKE", get = "stock.prices", 
+               from = "2013-01-01", to = "2014-01-01")
+pepsi <- tq_get("PEP", get = "stock.prices", 
+                from = "2013-01-01", to = "2014-01-01")
+
+# it is assumed that if Coke goes up on a particular day, 
+# then so should Pepsi. 
+# as a result, we focus on price changes of these two stocks
+
+calculate_price_change <- function(stock_price_df) {
+  price_change_df <- stock_price_df %>% 
+    tq_mutate(select = adjusted, mutate_fun = diff.xts) %>% 
+    dplyr::select(symbol, date, diff.xts) %>% 
+    dplyr::filter(!is.na(diff.xts)) # the first entry naturally contains a missing value (NA) because there is no previous price
+  
+  return(price_change_df)
+}
+
+
+coke_price_change <- calculate_price_change(coke) 
+pepsi_price_change <- calculate_price_change(pepsi)
+
+# make a data frame with daily price change for Coke and Pepsi
+price_change_df <- coke_price_change %>% 
+  dplyr::bind_rows(pepsi_price_change) %>% 
+  tidyr::pivot_wider(id_cols = date, names_from = symbol, values_from = diff.xts)
+
+# make a scatter plot of Coke versus Pepsi price changes over a year
+# as shown in figure 6.1
+ggplot(price_change_df, aes(COKE, PEP)) + 
+  geom_point(shape = 1, size = 3) + 
+  theme_bw() + 
+  labs(x = "Coke price changes", y = "Pepsi price changes", 
+       title = "Pepsi versus Coke price changes")
+```
+
+## Why pair trading?
+
+This is how we can create a **stationary** time series for an artificial stock, called **spread**. 
+Importantly, this artificial stock is a great candidate for mean-reverting, and its price can be represented as 
+
+$$\text{spread price(t)} = \frac{x(t) A(t) + y(t) B(t)}{x(t) + y(t)}$$
+$A(t)$ and $B(t)$ represent the stock price for stock A and B at time $t$. 
+$x(t)$ and $y(t)$ represent the shares that one has for stock A and B at time $t$
+
+We can see that essentially the spread price is a weighted average of stock price A and B. 
+
+$$
+\begin{align}
+w_A &= \frac{x(t)}{x(t) + y(t)} \\
+w_B &= \frac{y(t)}{x(t) + y(t)} \\
+\text{spread price(t)} &= w_A A(t) + w_B B(t)
+\end{align}
+$$
+
+Since the time series $\text{spread price(t)}$ is stationary, in other words the spread price does not change over time, this indicates $\text{spread price(t + 1)} \approx \text{spread price(t)}$. 
+Meanwhile $\text{spread price(t + 1)} = w_A A(t+1) + w_B B(t+1)$. 
+This means
+
+$$
+\begin{align}
+w_A A(t+1) + w_B B(t+1) &\approx w_A A(t) + w_B B(t) \\
+w_A [A(t+1) - A(t)] &\approx -w_B [B(t+1) - B(t)] \\
+w_A \times \text{price change A} &\approx -w_B \times \text{price change B} \\
+\text{price change A} &\approx -\frac{w_B}{w_A} \times \text{price change B} \\
+\text{price change A} &= -\frac{w_B}{w_A} \times \text{price change B} + \epsilon
+\end{align}
+$$
+$\epsilon$ is the random error which is normally distributed.
+The $-\frac{w_B}{w_A}$ is the regression coefficient $\beta$. 
+$\frac{w_B}{w_A}$ is also called **hedge ratio**. 
+
+## How does pair traiding work?
+
+1. estimate the spread beta $\beta$ based on the price change data. 
+2. calculate the proportion of stock A based on the $\beta$.  
+3. construct the spread based on the weighted average of stock price of A and B
+
+$$
+\begin{align}
+\beta &= -\frac{w_B}{w_A} \\
+-\frac{w_B}{w_A} &= 1 - \frac{1}{w_A} \\
+\beta &= 1 - \frac{1}{w_A} \\
+w_A &= \frac{1}{1 - \beta} \\
+w_A &= \frac{x(t)}{x(t) + y(t)} \\
+y(t) &= \frac{x(t)}{w_A} - x(t) \\
+\Delta x &= x(t) - x(t-1) \\
+\Delta y &= y(t) - y(t-1) \\ 
+&= \frac{x(t)}{w_A} - x(t) - [\frac{x(t-1)}{w_A} - x(t-1)] \\
+&= \frac{\Delta x}{w_A} - \Delta x
+\end{align}
+$$
+
+$\Delta x$ ($\Delta y$) is the number of shares we need to tread (buy if it is positive, or sell if it is negative). 
+Since $0 \le w_A \le 1$, $\Delta y$ must be $< 0$ if $\Delta x > 0$. 
+This explains why in the pair trading strategy when one purchases stock A and he needs to sell stock B. 
+
+## Example spread between Coke and Pepsi
+
+```{r estimation-spread-beta}
+calculate_spread_beta <- function(price_change_a, price_change_b) {
+  my_fit <- lm(price_change_a ~ 0 + price_change_b)
+  spread_beta <- my_fit$coefficients["price_change_b"]
+  return(spread_beta)
+}
+
+calculate_spread_beta(price_change_df$COKE, price_change_df$PEP)
+```
+
+```{r in-sample-spread}
+# define the function to calculate the spread price per share
+calculate_spread <- function(p1, p2, b) {
+  # p1 = stock A price per share at time t
+  # p2 = stock B price per share at time t
+  # b = spread beta
+  
+  w1 <- 1 / (1 - b) # proportion of stock A 
+  w2 <- 1 - w1 # proportion of stock B
+  spread_price <- w1 * p1 + w2 * p2
+  return(spread_price)
+}
+
+# to match the figure 7.5 in the book "How to Build Your Own Algorithmic Trading Business"
+# the start and end date needs to be changed
+# in addition, in the same book the symbol for Coke is KO
+coke <- tq_get("KO", get = "stock.prices", 
+               from = "1977-01-01", to = "2008-12-31")
+pepsi <- tq_get("PEP", get = "stock.prices", 
+                from = "1977-01-01", to = "2008-12-31")
+
+coke_price_change <- calculate_price_change(coke) 
+pepsi_price_change <- calculate_price_change(pepsi)
+
+# make a data frame with daily price change for Coke and Pepsi
+price_change_df <- coke_price_change %>% 
+  dplyr::bind_rows(pepsi_price_change) %>% 
+  tidyr::pivot_wider(id_cols = date, names_from = symbol, values_from = diff.xts)
+
+# based on the price change data, calculate the spread beta
+spread_beta <- calculate_spread_beta(price_change_df$KO, price_change_df$PEP)
+
+# construct a spread for Coke and Pepsi pair trading
+# that is similar to the figure 7.5 in the book "How to Build Your Own Algorithmic Trading Business"
+coke_pepsi_spread <- calculate_spread(p1 = coke$adjusted, p2 = pepsi$adjusted, b = spread_beta)
+
+tibble::tibble(date = coke$date, spread = coke_pepsi_spread) %>% 
+  ggplot(aes(date, spread)) + 
+  geom_line() + 
+  theme_bw() + 
+  labs(x = NULL, y = "Spread price (in $)")
+```
+
+As we can see the spread price series is not stationary. 
