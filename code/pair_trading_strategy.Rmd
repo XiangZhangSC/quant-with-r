@@ -1,4 +1,5 @@
 ---
+title: "Pair trading strategy"
 output: html_document
 editor_options: 
   chunk_output_type: console
@@ -52,44 +53,66 @@ ggplot(price_change_df, aes(COKE, PEP)) +
 
 ## Why pair trading?
 
-This is how we can create a **stationary** time series for a artificial stock, called **spread**. 
-The price of this artificial stock can be represented as 
+This is how we can create a **stationary** time series for an artificial stock, called **spread**. 
+Importantly, this artificial stock is a great candidate for mean-reverting, and its price can be represented as 
 
-$$\text{spread price(t)} = \frac{x A(t) + y B(t)}{x + y}$$
-$A(t)$ ad $B(t)$ represent the stock price for stock A and B at the time $t$. 
+$$\text{spread price(t)} = \frac{x(t) A(t) + y(t) B(t)}{x(t) + y(t)}$$
+$A(t)$ and $B(t)$ represent the stock price for stock A and B at time $t$. 
+$x(t)$ and $y(t)$ represent the shares that one has for stock A and B at time $t$
 
-## Why one needs to purchase stock A and sell stock B in pair trading?
+We can see that essentially the spread price is a weighted average of stock price A and B. 
 
-Since the time series $\text{spread price(t)}$ is stationary, in other words the spread price does not change over time, this indicates $\text{spread price(t + 1)} \approx \text{spread price(t)}$. 
-Meanwhile $\text{spread price(t + 1)} = \frac{x A(t + 1) + y B(t + 1)}{x + y}$. 
-This means $x A(t + 1) + y B(t + 1) \approx x A(t) + y B(t)$. 
-If we rearrange the equation we have 
 $$
 \begin{align}
-x A(t + 1) - x A(t) &\approx  y B(t) - y B(t + 1) \\
-x[A(t + 1) - A(t)] &\approx -y[B(t + 1) - B(t)]
+w_A &= \frac{x(t)}{x(t) + y(t)} \\
+w_B &= \frac{y(t)}{x(t) + y(t)} \\
+\text{spread price(t)} &= w_A A(t) + w_B B(t)
 \end{align}
 $$
-There is a negative sign in front of $y$, meaning selling $y$ shares of stock B. 
-In contrast, stock A needs to be purchased at $x$ shares. 
 
-## How many shares stock A need to be purchased and how many shares stock B need to be sold?
+Since the time series $\text{spread price(t)}$ is stationary, in other words the spread price does not change over time, this indicates $\text{spread price(t + 1)} \approx \text{spread price(t)}$. 
+Meanwhile $\text{spread price(t + 1)} = w_A A(t+1) + w_B B(t+1)$. 
+This means
 
-Based on the equation 
-$$x[A(t + 1) - A(t)] \approx -y[B(t + 1) - B(t)]$$
-we can rewrite the $\approx$ from the perspective of linear regression. 
 $$
 \begin{align}
-x \times \text{price change A} &\approx -y \times \text{price change B} \\
-\text{price change A} &\approx \frac{-y}{x} \times \text{price change B} \\
-\text{price change A} &= \frac{-y}{x} \times \text{price change B} + \epsilon
+w_A A(t+1) + w_B B(t+1) &\approx w_A A(t) + w_B B(t) \\
+w_A [A(t+1) - A(t)] &\approx -w_B [B(t+1) - B(t)] \\
+w_A \times \text{price change A} &\approx -w_B \times \text{price change B} \\
+\text{price change A} &\approx -\frac{w_B}{w_A} \times \text{price change B} \\
+\text{price change A} &= -\frac{w_B}{w_A} \times \text{price change B} + \epsilon
 \end{align}
 $$
 $\epsilon$ is the random error which is normally distributed.
-The $\frac{-y}{x}$ is the regression coefficient $\beta$ and estimated based on the price change data of stock A and stock B. 
-This provides another reason why we need to work with the price change of Coke and Pepsi. 
+The $-\frac{w_B}{w_A}$ is the regression coefficient $\beta$. 
+$\frac{w_B}{w_A}$ is also called **hedge ratio**. 
 
-Later, when it is decided to buy x shares stock A, then $y = \beta \times x$ shares stock B needs to be sold. 
+## How does pair traiding work?
+
+1. estimate the spread beta $\beta$ based on the price change data. 
+2. calculate the proportion of stock A based on the $\beta$.  
+3. construct the spread based on the weighted average of stock price of A and B
+
+$$
+\begin{align}
+\beta &= -\frac{w_B}{w_A} \\
+-\frac{w_B}{w_A} &= 1 - \frac{1}{w_A} \\
+\beta &= 1 - \frac{1}{w_A} \\
+w_A &= \frac{1}{1 - \beta} \\
+w_A &= \frac{x(t)}{x(t) + y(t)} \\
+y(t) &= \frac{x(t)}{w_A} - x(t) \\
+\Delta x &= x(t) - x(t-1) \\
+\Delta y &= y(t) - y(t-1) \\ 
+&= \frac{x(t)}{w_A} - x(t) - [\frac{x(t-1)}{w_A} - x(t-1)] \\
+&= \frac{\Delta x}{w_A} - \Delta x
+\end{align}
+$$
+
+$\Delta x$ ($\Delta y$) is the number of shares we need to tread (buy if it is positive, or sell if it is negative). 
+Since $0 \le w_A \le 1$, $\Delta y$ must be $< 0$ if $\Delta x > 0$. 
+This explains why in the pair trading strategy when one purchases stock A and he needs to sell stock B. 
+
+## Example spread between Coke and Pepsi
 
 ```{r estimation-spread-beta}
 calculate_spread_beta <- function(price_change_a, price_change_b) {
@@ -108,10 +131,9 @@ calculate_spread <- function(p1, p2, b) {
   # p2 = stock B price per share at time t
   # b = spread beta
   
-  s1 <- 1 # shares of stock A to buy
-  s2 <- s1 * b # shares of stock B to sell
-  s_tot <- s1 + s2 # total shares of this artificial stock called spread
-  spread_price <- (s1 * p1 + s2 * p2) / s_tot
+  w1 <- 1 / (1 - b) # proportion of stock A 
+  w2 <- 1 - w1 # proportion of stock B
+  spread_price <- w1 * p1 + w2 * p2
   return(spread_price)
 }
 
@@ -119,9 +141,9 @@ calculate_spread <- function(p1, p2, b) {
 # the start and end date needs to be changed
 # in addition, in the same book the symbol for Coke is KO
 coke <- tq_get("KO", get = "stock.prices", 
-               from = "1977-01-01", to = "2000-12-31")
+               from = "1977-01-01", to = "2008-12-31")
 pepsi <- tq_get("PEP", get = "stock.prices", 
-                from = "1977-01-01", to = "2000-12-31")
+                from = "1977-01-01", to = "2008-12-31")
 
 coke_price_change <- calculate_price_change(coke) 
 pepsi_price_change <- calculate_price_change(pepsi)
@@ -142,7 +164,7 @@ tibble::tibble(date = coke$date, spread = coke_pepsi_spread) %>%
   ggplot(aes(date, spread)) + 
   geom_line() + 
   theme_bw() + 
-  labs(x = NULL, y = "Spread (in $)")
+  labs(x = NULL, y = "Spread price (in $)")
 ```
 
-This means if 1 share Coke is purchased, `r spread_beta` share Pepsi needs to be sold. 
+As we can see the spread price series is not stationary. 
