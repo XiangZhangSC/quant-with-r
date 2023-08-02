@@ -218,11 +218,55 @@ spread_beta <- calculate_spread_beta(price_change_df$AAPL, price_change_df$SPY)
 aapl_spy_spread <- calculate_spread(p1 = aapl$adjusted, p2 = spy$adjusted, b = spread_beta)
 
 # make a line plot similar to FIgure 6.5
-tibble::tibble(date = aapl$date, spread = aapl_spy_spread) %>% 
-  ggplot(aes(date, spread)) + 
+in_sample_spread <- tibble::tibble(date = aapl$date, spread = aapl_spy_spread)
+
+ggplot(in_sample_spread, aes(date, spread)) + 
   geom_line() + 
   theme_bw() + 
   labs(x = NULL, y = "Spread price (in $)", 
        title = "In sample spread between AAPL and SPY")
 ```
 
+```{r aapl-spy-out-sample-spread}
+spy_out <- tq_get("SPY", get = "stock.prices", 
+               from = "2012-01-01", to = "2012-10-22")
+aapl_out <- tq_get("AAPL", get = "stock.prices", 
+                from = "2012-01-01", to = "2012-10-22")
+
+# we use the in sample spread beta to contruct the out sample spread
+aapl_spy_spread_out <- calculate_spread(p1 = aapl_out$adjusted, p2 = spy_out$adjusted, b = spread_beta)
+
+# make a line plot similar to FIgure 6.5
+out_of_sample_spread <- tibble::tibble(date = aapl_out$date, spread = aapl_spy_spread_out) 
+  
+ggplot(out_of_sample_spread, aes(date, spread)) + 
+  geom_line() + 
+  theme_bw() + 
+  labs(x = NULL, y = "Spread price (in $)", 
+       title = "Out of sample spread between AAPL and SPY")
+```
+
+We can visualize both in sample and out of sample spread in a single graph. 
+
+```{r viz-spread-in-and-out}
+# stack the in sample and out of sample spread data frame
+in_sample_spread %>% 
+  dplyr::bind_rows(out_of_sample_spread) %>% 
+  ggplot(aes(date, spread)) + 
+  # first layer is the react
+  ## left react corresponds to the in sample spread
+  geom_rect(xmin = lubridate::ymd("2011-01-01"), xmax = lubridate::ymd("2011-12-31"), 
+            ymin = -Inf, ymax = Inf, fill = "skyblue", alpha = 0.2) + 
+  geom_text(aes(x = lubridate::ymd("2011-07-01"), y = 12), label = "in sample") + 
+  ## right react corresponds to the out of sample spread
+  geom_rect(xmin = lubridate::ymd("2012-01-01"), xmax = lubridate::ymd("2012-12-31"), 
+            ymin = -Inf, ymax = Inf, fill = "pink", alpha = 0.2) + 
+  geom_text(aes(x = lubridate::ymd("2012-07-01"), y = 12), label = "out of sample") + 
+  # second layer is the line
+  geom_line() + 
+  theme_bw() + 
+  labs(x = NULL, y = "Spread price (in $)", 
+       title = "AAPL ~ beta*SPY")
+```
+
+Indeed, as what the texts in the book suggested, we can clearly see that the entire out of sample spread is above the in sample spread. 
