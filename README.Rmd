@@ -1,0 +1,23 @@
+---
+output: github_document
+---
+
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+# Quant with R
+
+<!-- badges: start -->
+<!-- badges: end -->
+
+This repo holds my own notes about quantitative trading. 
+My notes are inspired by examples from various books include:
+
+1. [Quantitative Trading: How to Build Your Own Algorithmic Trading Business](https://a.co/d/21d4bkY)
+2. [Quantitative Trading with R: Understanding Mathematical and Computational Tools from a Quant’s Perspective](https://a.co/d/hlPafJn)
