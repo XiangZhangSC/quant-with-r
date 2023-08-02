@@ -168,3 +168,29 @@ tibble::tibble(date = coke$date, spread = coke_pepsi_spread) %>%
 ```
 
 As we can see the spread price series is not stationary. 
+
+## Example spread between AAPL and SPY
+
+```{r aapl-spy-data}
+spy <- tq_get("SPY", get = "stock.prices", 
+               from = "2011-01-01", to = "2012-12-31")
+aapl <- tq_get("AAPL", get = "stock.prices", 
+                from = "2011-01-01", to = "2012-12-31")
+
+spy_price_change <- calculate_price_change(spy) 
+aapl_price_change <- calculate_price_change(aapl)
+
+# make a data frame with daily price change for Coke and Pepsi
+price_change_df <- spy_price_change %>% 
+  dplyr::bind_rows(aapl_price_change) %>% 
+  tidyr::pivot_wider(id_cols = date, names_from = symbol, values_from = diff.xts)
+
+# make a scatter plot of as shown in figure 6.4
+ggplot(price_change_df, aes(SPY, AAPL)) + 
+  geom_point(shape = 1, size = 3) + 
+  theme_bw() + 
+  labs(x = "SPY price changes", y = "AAPL price changes", 
+       title = "AAPL versus Coke price changes") + 
+  geom_smooth(method = "lm", se = FALSE)
+```
+
