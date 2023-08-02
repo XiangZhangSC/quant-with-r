@@ -270,3 +270,60 @@ in_sample_spread %>%
 ```
 
 Indeed, as what the texts in the book suggested, we can clearly see that the entire out of sample spread is above the in sample spread. 
+
+### Rolling spread beta
+
+```{r rolling-beta}
+window_length <- 10 # day
+
+# calculate rolling spread beta based on price changes
+my_roll_fit <- roll::roll_lm(x = price_change_df$SPY, y = price_change_df$AAPL, width = window_length, intercept = FALSE)
+
+rolling_spread_betas <- my_roll_fit$coefficients
+
+# organize the rolling spread betas into a data frame
+# each day will have its corresponding spread beta
+rolling_spread_beta_df <- aapl %>% 
+  dplyr::bind_rows(spy) %>% 
+  dplyr::semi_join(price_change_df, by = "date") %>% 
+  dplyr::select(symbol, date, adjusted) %>%
+  tidyr::pivot_wider(id_cols = date, names_from = symbol, values_from = adjusted) %>% 
+  dplyr::mutate(spread_beta = rolling_spread_betas)
+```
+
+We can visualize the rolling spread betas and the static spread beta in a single graph. 
+
+```{r rolling-static-beta}
+rolling_spread_beta_df %>% 
+  dplyr::rename(rolling_beta = spread_beta) %>% 
+  dplyr::mutate(static_beta = spread_beta) %>% 
+  tidyr::pivot_longer(rolling_beta:static_beta, names_to = "what", values_to = "spread_beta") %>% 
+  ggplot(aes(date, spread_beta)) + 
+  geom_line(aes(group = what, color = what), linewidth = 1) + 
+  scale_color_brewer("", palette = "Set2") + 
+  labs(x = NULL, y = "SPread beta") + 
+  theme_bw()
+```
+
+We can inspect the consequent spread price series when we choose either static or rolling spread beta. 
+
+```{r rolling-static-spread}
+in_sample_rolling_spread <- rolling_spread_beta_df %>% 
+  dplyr::mutate(spread = purrr::pmap_dbl(list(AAPL, SPY, spread_beta), 
+                                     ~calculate_spread(p1 = ..1, 
+                                                       p2 = ..2, 
+                                                       b = ..3))) %>% 
+  dplyr::select(date, spread) %>% 
+  dplyr::mutate(what = "rolling")
+
+in_sample_spread %>% 
+  dplyr::mutate(what = "static") %>% 
+  dplyr::bind_rows(in_sample_rolling_spread) %>% 
+  ggplot(aes(date, spread)) + 
+  geom_line(aes(group = what, color = what), linewidth = 1) + 
+  scale_color_brewer("", palette = "Set2") + 
+  theme_bw() + 
+  labs(x = NULL, y = "Spread price (in $)", 
+       title = "In sample spread between AAPL and SPY")
+```
+
