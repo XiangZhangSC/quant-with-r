@@ -140,18 +140,29 @@ calculate_spread <- function(p1, p2, b) {
 # to match the figure 7.5 in the book "How to Build Your Own Algorithmic Trading Business"
 # the start and end date needs to be changed
 # in addition, in the same book the symbol for Coke is KO
+
 coke <- tq_get("KO", get = "stock.prices", 
                from = "1977-01-01", to = "2008-12-31")
 pepsi <- tq_get("PEP", get = "stock.prices", 
                 from = "1977-01-01", to = "2008-12-31")
 
-coke_price_change <- calculate_price_change(coke) 
-pepsi_price_change <- calculate_price_change(pepsi)
+# Since we need to update the price change data every time when we change 
+# the stock or date, I make a function to automate the process
+get_price_change_data <- function(stock1, stock2) {
+  
+  stock1_price_change <- calculate_price_change(stock1) 
+  stock2_price_change <- calculate_price_change(stock2)
+  
+  # make a data frame with daily price change for the pair stocks
+  price_change_df <- stock1_price_change %>%
+    dplyr::bind_rows(stock2_price_change) %>% 
+    tidyr::pivot_wider(id_cols = date, names_from = symbol, values_from = diff.xts)
+  
+  return(price_change_df)
+}
 
-# make a data frame with daily price change for Coke and Pepsi
-price_change_df <- coke_price_change %>% 
-  dplyr::bind_rows(pepsi_price_change) %>% 
-  tidyr::pivot_wider(id_cols = date, names_from = symbol, values_from = diff.xts)
+# get the price change data frame for the pair stocks
+price_change_df <- get_price_change_data(coke, pepsi)
 
 # based on the price change data, calculate the spread beta
 spread_beta <- calculate_spread_beta(price_change_df$KO, price_change_df$PEP)
