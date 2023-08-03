@@ -6,7 +6,7 @@ editor_options:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
 
 library(tidyquant)
 library(magrittr)
@@ -83,9 +83,11 @@ w_A \times \text{price change A} &\approx -w_B \times \text{price change B} \\
 \text{price change A} &= -\frac{w_B}{w_A} \times \text{price change B} + \epsilon
 \end{align}
 $$
+
 $\epsilon$ is the random error which is normally distributed.
 The $-\frac{w_B}{w_A}$ is the regression coefficient $\beta$. 
 $\frac{w_B}{w_A}$ is also called **hedge ratio**. 
+We also realize that $\beta$ **cannot** be a positive number. 
 
 ## How does pair trading work?
 
@@ -109,22 +111,36 @@ y(t) &= \frac{x(t)}{w_A} - x(t) \\
 $$
 
 $\Delta x$ ($\Delta y$) is the number of shares we need to tread (buy if it is positive, or sell if it is negative). 
-Since $0 \le w_A \le 1$, $\Delta y$ must be $< 0$ if $\Delta x > 0$. 
+Since $0 < w_A \leq 1$, $\Delta y$ must be $< 0$ if $\Delta x > 0$. 
 This explains why in the pair trading strategy when one purchases stock A and he needs to sell stock B. 
 
-## Example spread between Coke and Pepsi
-
-```{r estimation-spread-beta}
-calculate_spread_beta <- function(price_change_a, price_change_b) {
-  my_fit <- lm(price_change_a ~ 0 + price_change_b)
-  spread_beta <- my_fit$coefficients["price_change_b"]
+```{r estimation-spread-beta, echo=TRUE}
+calculate_spread_beta <- function(price_change_a, price_change_b, constrained = TRUE) {
+  
+  my_data <- data.frame(price_change_a = as.numeric(price_change_a), 
+                        price_change_b = as.numeric(price_change_b))
+  
+  if (constrained == FALSE) {
+    my_fit <- lm(price_change_a ~ 0 + price_change_b, data = my_data)
+    spread_beta <- my_fit$coefficients["price_change_b"]
+  } else {
+    # The above lm() does not provide a way to restrict coefficients. 
+    # Instead we can use the function nls under the algorithm port. 
+    # This allow us to provide start for the coefficients, as well as upper and lower boundaries.
+    my_fit <- stats::nls(price_change_a ~ spread_beta * price_change_b, data = my_data, start = list(spread_beta = -1), lower = c(spread_beta = -Inf), upper = c(spread_beta = 0), algorithm = "port")
+    spread_beta <- stats::coef(my_fit)
+  }
   return(spread_beta)
 }
-
-calculate_spread_beta(price_change_df$COKE, price_change_df$PEP)
 ```
 
-```{r in-sample-spread}
+Without the constraint that spread beta cannot be a positive number, we get the spread beta `r calculate_spread_beta(price_change_a = price_change_df$COKE, price_change_b = price_change_df$PEP, constrained = FALSE)`. 
+This means the proportion of Coke is `r 1/(1 - calculate_spread_beta(price_change_a = price_change_df$COKE, price_change_b = price_change_df$PEP, constrained = FALSE))`. 
+This is not possible, because the proportion of a stock cannot be larger than 1. 
+
+Once we have the value of spread beta, the next step is to construct a spread price series.
+
+```{r construct-series, echo=TRUE}
 # define the function to calculate the spread price per share
 calculate_spread <- function(p1, p2, b) {
   # p1 = stock A price per share at time t
@@ -136,16 +152,9 @@ calculate_spread <- function(p1, p2, b) {
   spread_price <- w1 * p1 + w2 * p2
   return(spread_price)
 }
+```
 
-# to match the figure 7.5 in the book "How to Build Your Own Algorithmic Trading Business"
-# the start and end date needs to be changed
-# in addition, in the same book the symbol for Coke is KO
-
-coke <- tq_get("KO", get = "stock.prices", 
-               from = "1977-01-01", to = "2008-12-31")
-pepsi <- tq_get("PEP", get = "stock.prices", 
-                from = "1977-01-01", to = "2008-12-31")
-
+```{r convenient-functions}
 # Since we need to update the price change data every time when we change 
 # the stock or date, I make a function to automate the process
 get_price_change_data <- function(stock1, stock2) {
@@ -160,6 +169,18 @@ get_price_change_data <- function(stock1, stock2) {
   
   return(price_change_df)
 }
+```
+
+## Example spread between Coke and Pepsi
+
+```{r in-sample-spread}
+# to match the figure 7.5 in the book "How to Build Your Own Algorithmic Trading Business"
+# the start and end date needs to be changed
+# in addition, in the same book the symbol for Coke is KO
+coke <- tq_get("KO", get = "stock.prices", 
+               from = "1977-01-01", to = "2008-12-31")
+pepsi <- tq_get("PEP", get = "stock.prices", 
+                from = "1977-01-01", to = "2008-12-31")
 
 # get the price change data frame for the pair stocks
 price_change_df <- get_price_change_data(coke, pepsi)
@@ -203,6 +224,9 @@ ggplot(price_change_df, aes(SPY, AAPL)) +
 In the texts, the in sample date ranged from 2009-01-01 to 2011-12-31. 
 However, the figure 6.5 ranged from 2011-01-01 to 2011-12-31. 
 Since the goal here is to reproduce the figure 6.5, I used the same dates as the figure suggested. 
+The scatter plot showed that the AAPL and SPY positively correlated. 
+I artificially flipped the AAPL price change, so that the price change of these two stocks are negatively correlated. 
+I do this because the spread beta cannot be a positive number and it is easier to work with a negatively correlated pair of price changes. 
 
 ```{r aapl-spy-in-sample-spread}
 spy <- tq_get("SPY", get = "stock.prices", 
@@ -213,11 +237,14 @@ aapl <- tq_get("AAPL", get = "stock.prices",
 # make a data frame with daily price change for AAPL and SPY
 price_change_df <- get_price_change_data(spy, aapl)
 
+# flip the price change of AAPL
+price_change_df$AAPL <- price_change_df$AAPL * -1
+
 spread_beta <- calculate_spread_beta(price_change_df$AAPL, price_change_df$SPY) 
 
 aapl_spy_spread <- calculate_spread(p1 = aapl$adjusted, p2 = spy$adjusted, b = spread_beta)
 
-# make a line plot similar to FIgure 6.5
+# make a line plot similar to Figure 6.5
 in_sample_spread <- tibble::tibble(date = aapl$date, spread = aapl_spy_spread)
 
 ggplot(in_sample_spread, aes(date, spread)) + 
@@ -233,20 +260,14 @@ spy_out <- tq_get("SPY", get = "stock.prices",
 aapl_out <- tq_get("AAPL", get = "stock.prices", 
                 from = "2012-01-01", to = "2012-10-22")
 
-# we use the in sample spread beta to contruct the out sample spread
+# we use the in sample spread beta to construct the out sample spread
 aapl_spy_spread_out <- calculate_spread(p1 = aapl_out$adjusted, p2 = spy_out$adjusted, b = spread_beta)
 
-# make a line plot similar to FIgure 6.5
-out_of_sample_spread <- tibble::tibble(date = aapl_out$date, spread = aapl_spy_spread_out) 
-  
-ggplot(out_of_sample_spread, aes(date, spread)) + 
-  geom_line() + 
-  theme_bw() + 
-  labs(x = NULL, y = "Spread price (in $)", 
-       title = "Out of sample spread between AAPL and SPY")
+# make a line plot similar to Figure 6.5
+out_of_sample_spread <- tibble::tibble(date = aapl_out$date, spread = aapl_spy_spread_out)
 ```
 
-We can visualize both in sample and out of sample spread in a single graph. 
+If one thinks that the in sample spread is stationary, we can then use the spread beta learned from the in sample period to inspect if the spread price series remain stationary in the out of sample period. 
 
 ```{r viz-spread-in-and-out}
 # stack the in sample and out of sample spread data frame
@@ -257,11 +278,11 @@ in_sample_spread %>%
   ## left react corresponds to the in sample spread
   geom_rect(xmin = lubridate::ymd("2011-01-01"), xmax = lubridate::ymd("2011-12-31"), 
             ymin = -Inf, ymax = Inf, fill = "skyblue", alpha = 0.2) + 
-  geom_text(aes(x = lubridate::ymd("2011-07-01"), y = 12), label = "in sample") + 
+  geom_text(aes(x = lubridate::ymd("2011-07-01"), y = 30), label = "in sample") + 
   ## right react corresponds to the out of sample spread
   geom_rect(xmin = lubridate::ymd("2012-01-01"), xmax = lubridate::ymd("2012-12-31"), 
             ymin = -Inf, ymax = Inf, fill = "pink", alpha = 0.2) + 
-  geom_text(aes(x = lubridate::ymd("2012-07-01"), y = 12), label = "out of sample") + 
+  geom_text(aes(x = lubridate::ymd("2012-07-01"), y = 30), label = "out of sample") + 
   # second layer is the line
   geom_line() + 
   theme_bw() + 
@@ -269,18 +290,30 @@ in_sample_spread %>%
        title = "AAPL ~ beta*SPY")
 ```
 
-Indeed, as what the texts in the book suggested, we can clearly see that the entire out of sample spread is above the in sample spread. 
+Here we can clearly see that the entire out of sample spread is above the in sample spread, so you will never have a buy signal in the out of sample period only sell signal. 
 
 ### Rolling spread beta
 
-```{r rolling-beta}
+It is important to have the constraint that spread beta cannot be a positive number when we run the rolling spread beta based on price changes. 
+Otherwise, we will get negative spread price value and the proportion of a stock can be over 100% or a negative number. 
+Here we use `rollapply` from the `zoo` package to realize the rolling. 
+
+```{r in-sample-rolling-beta, echo=TRUE}
 window_length <- 10 # day
 
 # calculate rolling spread beta based on price changes
-my_roll_fit <- roll::roll_lm(x = price_change_df$SPY, y = price_change_df$AAPL, width = window_length, intercept = FALSE)
+#my_roll_fit <- roll::roll_lm(x = price_change_df$SPY, y = price_change_df$AAPL, width = window_length, intercept = FALSE)
+# rolling_spread_betas <- my_roll_fit$coefficients
 
-rolling_spread_betas <- my_roll_fit$coefficients
+rolling_spread_betas <- zoo::rollapply(data = price_change_df, 
+                                       width = window_length, 
+                                       align = "right", 
+                                       FUN = function(x) calculate_spread_beta(price_change_a = x[,3], price_change_b = x[,2], constrained = TRUE), 
+                                       by.column = FALSE, 
+                                       fill = NA)
+```
 
+```{r viz-rolling-beta}
 # organize the rolling spread betas into a data frame
 # each day will have its corresponding spread beta
 rolling_spread_beta_df <- aapl %>% 
@@ -289,41 +322,31 @@ rolling_spread_beta_df <- aapl %>%
   dplyr::select(symbol, date, adjusted) %>%
   tidyr::pivot_wider(id_cols = date, names_from = symbol, values_from = adjusted) %>% 
   dplyr::mutate(spread_beta = rolling_spread_betas)
+
+# visualize the rolling betas
+ggplot(rolling_spread_beta_df, aes(date, spread_beta)) + 
+  geom_line() + 
+  theme_bw() + 
+  labs(x = NULL, y = "Spread beta", 
+       title = "In sample AAPL ~ b * SPY")
 ```
 
-We can visualize the rolling spread betas and the static spread beta in a single graph. 
+Indeed, depending on the day the spread beta changes. 
+Make sure that no spread beta is positive. 
 
-```{r rolling-static-beta}
-rolling_spread_beta_df %>% 
-  dplyr::rename(rolling_beta = spread_beta) %>% 
-  dplyr::mutate(static_beta = spread_beta) %>% 
-  tidyr::pivot_longer(rolling_beta:static_beta, names_to = "what", values_to = "spread_beta") %>% 
-  ggplot(aes(date, spread_beta)) + 
-  geom_line(aes(group = what, color = what), linewidth = 1) + 
-  scale_color_brewer("", palette = "Set2") + 
-  labs(x = NULL, y = "SPread beta") + 
-  theme_bw()
-```
-
-We can inspect the consequent spread price series when we choose either static or rolling spread beta. 
-
-```{r rolling-static-spread}
-in_sample_rolling_spread <- rolling_spread_beta_df %>% 
+```{r in-sample-rolling-spread}
+# calculate the spread price series
+rolling_spread <- rolling_spread_beta_df %>% 
   dplyr::mutate(spread = purrr::pmap_dbl(list(AAPL, SPY, spread_beta), 
                                      ~calculate_spread(p1 = ..1, 
                                                        p2 = ..2, 
-                                                       b = ..3))) %>% 
-  dplyr::select(date, spread) %>% 
-  dplyr::mutate(what = "rolling")
-
-in_sample_spread %>% 
-  dplyr::mutate(what = "static") %>% 
-  dplyr::bind_rows(in_sample_rolling_spread) %>% 
-  ggplot(aes(date, spread)) + 
-  geom_line(aes(group = what, color = what), linewidth = 1) + 
-  scale_color_brewer("", palette = "Set2") + 
+                                                       b = ..3)))
+# visualize the spread price series
+ggplot(rolling_spread, aes(date, spread)) + 
+  geom_line() + 
   theme_bw() + 
   labs(x = NULL, y = "Spread price (in $)", 
-       title = "In sample spread between AAPL and SPY")
+       title = "In sample rolling spread between AAPL and SPY")
 ```
 
+We can see that there is no spread price is negative value. 
